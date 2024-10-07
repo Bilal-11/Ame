@@ -1,0 +1,30 @@
+WHITESPACE = _{" " | "\t" | "\r" | "\n"}
+COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+
+decl = {"#lang"~";"}
+value = {(!";" ~ ANY)+}
+num_value = @{ASCII_DIGIT+}
+host = {"host" ~ "=" ~ value ~ ";"}
+port = {"port" ~ "=" ~ num_value ~ ";"}
+user = {"user" ~ "=" ~ value ~ ";"}
+password = {"password" ~ "=" ~ value ~ ";"}
+database = {"database" ~ "=" ~ value ~ ";"}
+setup_config = {host ~ port ~ user ~ password ~ database}
+
+lang_code = {"AA"|"AB"|"AE"|"AF"|"AK"|"AM"|"AN"|"AR"|"AS"|"AV"|"AY"|"AZ"|"BA"|"BE"|"BG"|"BH"|"BI"|"BM"|"BN"|"BO"|"BR"|"BS"|"CA"|"CE"|"CH"|"CO"|"CR"|"CS"|"CU"|"CV"|"CY"|"DA"|"DE"|"DV"|"DZ"|"EE"|"EL"|"EN"|"EO"|"ES"|"ET"|"EU"|"FA"|"FF"|"FI"|"FJ"|"FO"|"FR"|"FY"|"GA"|"GD"|"GL"|"GN"|"GU"|"GV"|"HA"|"HE"|"HI"|"HO"|"HR"|"HT"|"HU"|"HY"|"HZ"|"IA"|"ID"|"IE"|"IG"|"II"|"IK"|"IO"|"IS"|"IT"|"IU"|"JA"|"JV"|"KA"|"KG"|"KI"|"KJ"|"KK"|"KL"|"KM"|"KN"|"KO"|"KR"|"KS"|"KU"|"KV"|"KW"|"KY"|"LA"|"LB"|"LG"|"LI"|"LN"|"LO"|"LT"|"LU"|"LV"|"MG"|"MH"|"MI"|"MK"|"ML"|"MN"|"MR"|"MS"|"MT"|"MY"|"NA"|"NB"|"ND"|"NE"|"NG"|"NL"|"NN"|"NO"|"NR"|"NV"|"NY"|"OC"|"OJ"|"OM"|"OR"|"OS"|"PA"|"PI"|"PL"|"PS"|"PT"|"QU"|"RM"|"RN"|"RO"|"RU"|"RW"|"SA"|"SC"|"SD"|"SE"|"SG"|"SI"|"SK"|"SL"|"SM"|"SN"|"SO"|"SQ"|"SR"|"SS"|"ST"|"SU"|"SV"|"SW"|"TA"|"TE"|"TG"|"TH"|"TI"|"TK"|"TL"|"TN"|"TO"|"TR"|"TS"|"TT"|"TW"|"TY"|"UG"|"UK"|"UR"|"UZ"|"VE"|"VI"|"VO"|"WA"|"WO"|"XH"|"YI"|"YO"|"ZA"|"ZH"|"ZU"}
+
+language = {"Language" ~ lang_code ~ ("," ~ lang_code)* ~ ";"}
+
+variable = @{ASCII_ALPHANUMERIC+}
+word_val = {(!(";"|"("|")"|","|"=") ~ ANY)+}
+pos = {"n"|"v"|"adj"|"adv"}
+
+word_decl = {lang_code ~ "word" ~ variable ~ "=" ~ "(" ~ word_val ~ "," ~ pos ~ ")" ~ ";"}
+eq_decl = {variable ~ "=" ~ variable ~ ";"}
+is_a_decl = {variable ~ "IS_A" ~ variable ~ ";"}
+part_of_decl = {variable ~ "PART_OF" ~ variable ~ ";"}
+del_all = {"del" ~ "all" ~ ";"}
+
+statement = {word_decl|eq_decl|is_a_decl|part_of_decl}
+
+file = {SOI ~ decl ~ setup_config ~ language ~ del_all? ~ statement* ~ EOI}
