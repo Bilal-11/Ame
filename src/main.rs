@@ -37,6 +37,11 @@ fn main() {
     let mut is_a_table:Vec<(&str,&str)> = Vec::new();
     let mut part_of_table:Vec<(&str,&str)> = Vec::new();
 
+    let mut anon_words: Vec<Word> = vec![];
+    let mut anon_eq_table:Vec<(Word,Word)> = Vec::new();
+    let mut anon_is_a_table:Vec<(Word,Word)> = Vec::new();
+    let mut anon_part_of_table:Vec<(Word,Word)> = Vec::new();
+
     let mut queries:Vec<String> = Vec::new();
 
     let path = args[1].clone();
@@ -140,6 +145,116 @@ fn main() {
                             }
                             part_of_table.push((var[0],var[1]));
                         },
+                        Rule::short_word_decl => {
+                            let mut w = Word::new();
+                            for swd in st.into_inner(){
+                                match swd.as_rule() {
+                                    Rule::short_word => {
+                                        for sw in swd.into_inner(){
+                                            match sw.as_rule() {
+                                                Rule::lang_code => {
+                                                    if lang_context.contains(&sw.as_str().to_string()){
+                                                        w.lang = sw.as_str().to_string();
+                                                    }
+                                                    else{
+                                                        panic!("ERROR: Invalid language code {} not declared in the Language clause.",sw.as_str());
+                                                    }
+                                                },
+                                                Rule::word_val => w.name = sw.as_str().to_string(),
+                                                Rule::pos => w.pos = sw.as_str().to_string(),
+                                                _ => ()
+                                            }
+                                        }
+                                    },
+                                    _ => ()
+                                }
+                            }
+                            anon_words.push(w);
+                        },
+                        Rule::short_eq_decl => {
+                            let mut words:Vec<Word> = vec![];
+                            for seq in st.into_inner(){
+                                match seq.as_rule() {
+                                    Rule::short_word => {
+                                        let mut w = Word::new();
+                                        for sw in seq.into_inner(){
+                                            match sw.as_rule() {
+                                                Rule::lang_code => {
+                                                    if lang_context.contains(&sw.as_str().to_string()){
+                                                        w.lang = sw.as_str().to_string();
+                                                    }
+                                                    else{
+                                                        panic!("ERROR: Invalid language code {} not declared in the Language clause.",sw.as_str());
+                                                    }
+                                                },
+                                                Rule::word_val => w.name = sw.as_str().to_string(),
+                                                Rule::pos => w.pos = sw.as_str().to_string(),
+                                                _ => ()
+                                            }
+                                        }
+                                        words.push(w);
+                                    },
+                                    _ => ()
+                                }
+                            }
+                            anon_eq_table.push((words[0].clone(),words[1].clone()));
+                        },
+                        Rule::short_is_a_decl => {
+                            let mut words:Vec<Word> = vec![];
+                            for seq in st.into_inner(){
+                                match seq.as_rule() {
+                                    Rule::short_word => {
+                                        let mut w = Word::new();
+                                        for sw in seq.into_inner(){
+                                            match sw.as_rule() {
+                                                Rule::lang_code => {
+                                                    if lang_context.contains(&sw.as_str().to_string()){
+                                                        w.lang = sw.as_str().to_string();
+                                                    }
+                                                    else{
+                                                        panic!("ERROR: Invalid language code {} not declared in the Language clause.",sw.as_str());
+                                                    }
+                                                },
+                                                Rule::word_val => w.name = sw.as_str().to_string(),
+                                                Rule::pos => w.pos = sw.as_str().to_string(),
+                                                _ => ()
+                                            }
+                                        }
+                                        words.push(w);
+                                    },
+                                    _ => ()
+                                }
+                            }
+                            anon_is_a_table.push((words[0].clone(),words[1].clone()));
+                        },
+                        Rule::short_part_of_decl => {
+                            let mut words:Vec<Word> = vec![];
+                            for seq in st.into_inner(){
+                                match seq.as_rule() {
+                                    Rule::short_word => {
+                                        let mut w = Word::new();
+                                        for sw in seq.into_inner(){
+                                            match sw.as_rule() {
+                                                Rule::lang_code => {
+                                                    if lang_context.contains(&sw.as_str().to_string()){
+                                                        w.lang = sw.as_str().to_string();
+                                                    }
+                                                    else{
+                                                        panic!("ERROR: Invalid language code {} not declared in the Language clause.",sw.as_str());
+                                                    }
+                                                },
+                                                Rule::word_val => w.name = sw.as_str().to_string(),
+                                                Rule::pos => w.pos = sw.as_str().to_string(),
+                                                _ => ()
+                                            }
+                                        }
+                                        words.push(w);
+                                    },
+                                    _ => ()
+                                }
+                            }
+                            anon_part_of_table.push((words[0].clone(),words[1].clone()));
+                        },
                         _ => ()
                     }
                 }
@@ -155,6 +270,11 @@ fn main() {
     queries.extend(is_a_table.iter().map(|x| {qgen_is_a_table(x,&symbol_table)}).collect::<Vec<_>>());
     queries.extend(part_of_table.iter().map(|x| {qgen_part_of_table(x,&symbol_table)}).collect::<Vec<_>>());
 
+    queries.extend(anon_words.iter().map(|x| {qgen_anon_words(x)}).collect::<Vec<_>>());
+    queries.extend(anon_eq_table.iter().map(|x| {qgen_anon_eq_table(x)}).collect::<Vec<_>>());
+    queries.extend(anon_is_a_table.iter().map(|x| {qgen_anon_is_a_table(x)}).collect::<Vec<_>>());
+    queries.extend(anon_part_of_table.iter().map(|x| {qgen_anon_part_of_table(x)}).collect::<Vec<_>>());
+
     // Connecting to neo4j
     let database = Arc::new(String::from(setup_config.database));
     let address = Address::from((setup_config.host, setup_config.port));
@@ -167,10 +287,12 @@ fn main() {
     // Executing queries against the database
     for q in queries{
         let result = driver
-            .execute_query(q)
+            .execute_query(q.clone())
             .with_database(database.clone())
             .with_routing_control(RoutingControl::Write)
             .run_with_retry(ExponentialBackoff::default());
+
+        result.expect(&format!("Failed executing query:\n {}",q));
     }
 
     println!("File {} executed successfully against database {}",path, *database);
@@ -199,6 +321,7 @@ impl <'i> SetupConfig <'i>{
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
 struct Word {
     lang : String,
     name : String,
@@ -251,4 +374,56 @@ fn qgen_part_of_table(poe: &(&str,&str), sym_table:&HashMap<String,Word>) -> Str
     format!("MERGE (:{})<-[:LANG]-(part:Word{{name:'{}',pos:'{}'}})
 MERGE (:{})<-[:LANG]-(whole:Word{{name:'{}',pos:'{}'}})
 MERGE (part)-[:PART_OF]->(whole)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_anon_words(w: &Word) -> String{
+    format!("MERGE (word:Word{{name:'{}',pos:'{}'}})
+MERGE (lang:{})
+MERGE (word)-[:LANG]->(lang)",w.name,w.pos,w.lang)
+}
+
+fn qgen_anon_eq_table(wp: &(Word,Word)) -> String {
+
+    let (w1,w2) = wp;
+
+    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
+MERGE (langa:{})
+MERGE (worda)-[:LANG]->(langa)
+MERGE (wordb:Word{{name:'{}',pos:'{}'}})
+MERGE (langb:{})
+MERGE (wordb)-[:LANG]->(langb)
+MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
+MERGE (word1)-[:EQ]->(word2)
+MERGE (word1)<-[:EQ]-(word2)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_anon_is_a_table(wp: &(Word,Word)) -> String {
+
+    let (w1,w2) = wp;
+
+    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
+MERGE (langa:{})
+MERGE (worda)-[:LANG]->(langa)
+MERGE (wordb:Word{{name:'{}',pos:'{}'}})
+MERGE (langb:{})
+MERGE (wordb)-[:LANG]->(langb)
+MERGE (:{})<-[:LANG]-(sub:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(super:Word{{name:'{}',pos:'{}'}})
+MERGE (sub)-[:IS_A]->(super)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_anon_part_of_table(wp: &(Word,Word)) -> String {
+
+    let (w1,w2) = wp;
+
+    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
+MERGE (langa:{})
+MERGE (worda)-[:LANG]->(langa)
+MERGE (wordb:Word{{name:'{}',pos:'{}'}})
+MERGE (langb:{})
+MERGE (wordb)-[:LANG]->(langb)
+MERGE (:{})<-[:LANG]-(part:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(whole:Word{{name:'{}',pos:'{}'}})
+MERGE (part)-[:PART_OF]->(whole)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
 }
