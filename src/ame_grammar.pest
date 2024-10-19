@@ -23,15 +23,17 @@ word_decl = {lang_code ~ "word" ~ variable ~ "=" ~ "(" ~ word_val ~ "," ~ pos ~ 
 eq_decl = {variable ~ "=" ~ variable ~ ";"}
 is_a_decl = {variable ~ "IS_A" ~ variable ~ ";"}
 part_of_decl = {variable ~ "PART_OF" ~ variable ~ ";"}
+associated_with_decl = {variable ~ "ASSOCIATED_WITH" ~ variable ~ ";"}
 
 short_word = {lang_code ~ "(" ~ word_val ~ "," ~ pos ~ ")"}
 short_word_decl = {short_word ~ ";"}
 short_eq_decl = {short_word ~ "=" ~ short_word ~ ";"}
 short_is_a_decl = {short_word ~ "IS_A" ~ short_word ~ ";"}
 short_part_of_decl = {short_word ~ "PART_OF" ~ short_word ~ ";"}
+short_associated_with_decl = {short_word ~ "ASSOCIATED_WITH" ~ short_word ~ ";"}
 
 del_all = {"del" ~ "all" ~ ";"}
 
-statement = {word_decl|eq_decl|is_a_decl|part_of_decl|short_word_decl|short_eq_decl|short_is_a_decl|short_part_of_decl}
+statement = {word_decl|eq_decl|is_a_decl|part_of_decl|associated_with_decl|short_word_decl|short_eq_decl|short_is_a_decl|short_part_of_decl|short_associated_with_decl}
 
 file = {SOI ~ decl ~ setup_config ~ language ~ del_all? ~ statement* ~ EOI}

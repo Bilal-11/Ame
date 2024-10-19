@@ -24,7 +24,7 @@ fn main() {
     }
 
     if args[1] == "--version"{
-        println!("Ame v0.1.0");
+        println!("Ame v0.2.0");
         process::exit(0);
     }
 
@@ -36,11 +36,13 @@ fn main() {
     let mut eq_table:Vec<(&str,&str)> = Vec::new();
     let mut is_a_table:Vec<(&str,&str)> = Vec::new();
     let mut part_of_table:Vec<(&str,&str)> = Vec::new();
+    let mut associated_with_table:Vec<(&str,&str)> = Vec::new();
 
     let mut anon_words: Vec<Word> = vec![];
     let mut anon_eq_table:Vec<(Word,Word)> = Vec::new();
     let mut anon_is_a_table:Vec<(Word,Word)> = Vec::new();
     let mut anon_part_of_table:Vec<(Word,Word)> = Vec::new();
+    let mut anon_associated_with_table:Vec<(Word,Word)> = Vec::new();
 
     let mut queries:Vec<String> = Vec::new();
 
@@ -144,6 +146,18 @@ fn main() {
                                 }
                             }
                             part_of_table.push((var[0],var[1]));
+                        },
+                        Rule::associated_with_decl => {
+                            let mut var:Vec<&str> = vec![];
+                            for part_of in st.into_inner(){
+                                if symbol_table.contains_key(part_of.as_str()){
+                                    var.push(part_of.as_str());
+                                }
+                                else{
+                                    panic!("ERROR: variable {} is used before being defined.",part_of.as_str());
+                                }
+                            }
+                            associated_with_table.push((var[0],var[1]));
                         },
                         Rule::short_word_decl => {
                             let mut w = Word::new();
@@ -255,6 +269,34 @@ fn main() {
                             }
                             anon_part_of_table.push((words[0].clone(),words[1].clone()));
                         },
+                        Rule::short_associated_with_decl => {
+                            let mut words:Vec<Word> = vec![];
+                            for seq in st.into_inner(){
+                                match seq.as_rule() {
+                                    Rule::short_word => {
+                                        let mut w = Word::new();
+                                        for sw in seq.into_inner(){
+                                            match sw.as_rule() {
+                                                Rule::lang_code => {
+                                                    if lang_context.contains(&sw.as_str().to_string()){
+                                                        w.lang = sw.as_str().to_string();
+                                                    }
+                                                    else{
+                                                        panic!("ERROR: Invalid language code {} not declared in the Language clause.",sw.as_str());
+                                                    }
+                                                },
+                                                Rule::word_val => w.name = sw.as_str().to_string(),
+                                                Rule::pos => w.pos = sw.as_str().to_string(),
+                                                _ => ()
+                                            }
+                                        }
+                                        words.push(w);
+                                    },
+                                    _ => ()
+                                }
+                            }
+                            anon_associated_with_table.push((words[0].clone(),words[1].clone()));
+                        },
                         _ => ()
                     }
                 }
@@ -269,11 +311,13 @@ fn main() {
     queries.extend(eq_table.iter().map(|x| {qgen_eq_table(x,&symbol_table)}).collect::<Vec<_>>());
     queries.extend(is_a_table.iter().map(|x| {qgen_is_a_table(x,&symbol_table)}).collect::<Vec<_>>());
     queries.extend(part_of_table.iter().map(|x| {qgen_part_of_table(x,&symbol_table)}).collect::<Vec<_>>());
+    queries.extend(associated_with_table.iter().map(|x| {qgen_associated_with_table(x,&symbol_table)}).collect::<Vec<_>>());
 
     queries.extend(anon_words.iter().map(|x| {qgen_anon_words(x)}).collect::<Vec<_>>());
     queries.extend(anon_eq_table.iter().map(|x| {qgen_anon_eq_table(x)}).collect::<Vec<_>>());
     queries.extend(anon_is_a_table.iter().map(|x| {qgen_anon_is_a_table(x)}).collect::<Vec<_>>());
     queries.extend(anon_part_of_table.iter().map(|x| {qgen_anon_part_of_table(x)}).collect::<Vec<_>>());
+    queries.extend(anon_associated_with_table.iter().map(|x| {qgen_anon_associated_with_table(x)}).collect::<Vec<_>>());
 
     // Connecting to neo4j
     let database = Arc::new(String::from(setup_config.database));
@@ -376,6 +420,14 @@ MERGE (:{})<-[:LANG]-(whole:Word{{name:'{}',pos:'{}'}})
 MERGE (part)-[:PART_OF]->(whole)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
 }
 
+fn qgen_associated_with_table(poe: &(&str,&str), sym_table:&HashMap<String,Word>) -> String{
+    let w1 = sym_table.get(poe.0).unwrap();
+    let w2 = sym_table.get(poe.1).unwrap();
+    format!("MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
+MERGE (word1)-[:ASSOCIATED_WITH]->(word2)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
 fn qgen_anon_words(w: &Word) -> String{
     format!("MERGE (word:Word{{name:'{}',pos:'{}'}})
 MERGE (lang:{})
@@ -426,4 +478,19 @@ MERGE (wordb)-[:LANG]->(langb)
 MERGE (:{})<-[:LANG]-(part:Word{{name:'{}',pos:'{}'}})
 MERGE (:{})<-[:LANG]-(whole:Word{{name:'{}',pos:'{}'}})
 MERGE (part)-[:PART_OF]->(whole)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_anon_associated_with_table(wp: &(Word,Word)) -> String {
+
+    let (w1,w2) = wp;
+
+    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
+MERGE (langa:{})
+MERGE (worda)-[:LANG]->(langa)
+MERGE (wordb:Word{{name:'{}',pos:'{}'}})
+MERGE (langb:{})
+MERGE (wordb)-[:LANG]->(langb)
+MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
+MERGE (word1)-[:ASSOCIATED_WITH]->(word2)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
 }
