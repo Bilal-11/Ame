@@ -319,28 +319,8 @@ fn main() {
     queries.extend(anon_part_of_table.iter().map(|x| {qgen_anon_part_of_table(x)}).collect::<Vec<_>>());
     queries.extend(anon_associated_with_table.iter().map(|x| {qgen_anon_associated_with_table(x)}).collect::<Vec<_>>());
 
-    // Connecting to neo4j
-    let database = Arc::new(String::from(setup_config.database));
-    let address = Address::from((setup_config.host, setup_config.port));
-    let auth_token = AuthToken::new_basic_auth(setup_config.user, setup_config.password);
-    let driver = Driver::new(
-        ConnectionConfig::new(address),
-        DriverConfig::new().with_auth(Arc::new(auth_token)),
-    );
 
-    // Executing queries against the database
-    for q in queries{
-        let result = driver
-            .execute_query(q.clone())
-            .with_database(database.clone())
-            .with_routing_control(RoutingControl::Write)
-            .run_with_retry(ExponentialBackoff::default());
-
-        result.expect(&format!("Failed executing query:\n {}",q));
-    }
-
-    println!("File {} executed successfully against database {}",path, *database);
-
+    query_executor(&path,&queries,setup_config);
 }
 
 #[derive(Debug)]
@@ -493,4 +473,32 @@ MERGE (wordb)-[:LANG]->(langb)
 MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
 MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
 MERGE (word1)-[:ASSOCIATED_WITH]->(word2)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn query_executor(path:&str,queries:&Vec<String>,setup_config: SetupConfig){
+    // Connecting to neo4j
+    let database = Arc::new(String::from(setup_config.database));
+    let address = Address::from((setup_config.host, setup_config.port));
+    let auth_token = AuthToken::new_basic_auth(setup_config.user, setup_config.password);
+    let driver = Driver::new(
+        ConnectionConfig::new(address),
+        DriverConfig::new().with_auth(Arc::new(auth_token)),
+    );
+
+    // Executing queries against the database
+    let lenq = queries.len();
+    let mut cur = 0;
+    for q in queries{
+        let result = driver
+            .execute_query(q.clone())
+            .with_database(database.clone())
+            .with_routing_control(RoutingControl::Write)
+            .run_with_retry(ExponentialBackoff::default());
+
+        result.expect(&format!("Failed executing query:\n {}",q));
+        cur += 1;
+        print!("\rExecuted query: ({}/{})",cur,lenq);
+    }
+
+    println!("\nCompleted! File {} executed successfully against database {}",path, *database);
 }
