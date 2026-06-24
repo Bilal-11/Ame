@@ -5,7 +5,9 @@ use std::fs;
 use std::collections::HashMap;
 use std::env;
 use std::process;
-
+use std::io;
+use std::io::Read;
+use std::process::exit;
 use std::sync::Arc;
 
 use neo4j::address::Address;
@@ -28,7 +30,193 @@ fn main() {
         process::exit(0);
     }
 
+    let path = args[1].clone();
+    let langfile = fs::read_to_string(path.clone()).expect("Cannot read file");
+    parse_ame_file(&path, &langfile);
 
+}
+
+#[derive(Debug)]
+struct SetupConfig<'i> {
+    host:&'i str,
+    port:u16,
+    user:&'i str,
+    password:&'i str,
+    database:&'i str,
+}
+
+impl <'i> SetupConfig <'i>{
+    fn new() -> SetupConfig<'i>{
+        SetupConfig{
+            host : "localhost",
+            port : 7687,
+            user : "neo4j",
+            password : "password",
+            database : "neo4j"
+        }
+    }
+}
+
+#[derive(Debug)]
+#[derive(Clone)]
+struct Word {
+    lang : String,
+    name : String,
+    pos : String
+}
+
+impl Word{
+    fn new() -> Word{
+        Word{
+            lang: String::new(),
+            name: String::new(),
+            pos : String::new()
+        }
+    }
+}
+
+// Cypher query generators
+fn qgen_lang_context(lc : &str) -> String {
+    format!("MERGE (root:ROOT)
+MERGE (lang:{})
+MERGE (lang)-[:ANCHOR]->(root)",lc)
+}
+
+fn qgen_symbol_table(ste: (&String,&Word)) -> String{
+    format!("MERGE (word:Word{{name:'{}',pos:'{}'}})
+MERGE (lang:{})
+MERGE (word)-[:LANG]->(lang)",ste.1.name,ste.1.pos,ste.1.lang)
+}
+
+fn qgen_eq_table(eqe: &(&str,&str), sym_table:&HashMap<String,Word>) -> String{
+    let w1 = sym_table.get(eqe.0).unwrap();
+    let w2 = sym_table.get(eqe.1).unwrap();
+    format!("MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
+MERGE (word1)-[:EQ]->(word2)
+MERGE (word1)<-[:EQ]-(word2)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_is_a_table(isae: &(&str,&str), sym_table:&HashMap<String,Word>) -> String{
+    let w1 = sym_table.get(isae.0).unwrap();
+    let w2 = sym_table.get(isae.1).unwrap();
+    format!("MERGE (:{})<-[:LANG]-(sub:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(super:Word{{name:'{}',pos:'{}'}})
+MERGE (sub)-[:IS_A]->(super)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_part_of_table(poe: &(&str,&str), sym_table:&HashMap<String,Word>) -> String{
+    let w1 = sym_table.get(poe.0).unwrap();
+    let w2 = sym_table.get(poe.1).unwrap();
+    format!("MERGE (:{})<-[:LANG]-(part:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(whole:Word{{name:'{}',pos:'{}'}})
+MERGE (part)-[:PART_OF]->(whole)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_associated_with_table(poe: &(&str,&str), sym_table:&HashMap<String,Word>) -> String{
+    let w1 = sym_table.get(poe.0).unwrap();
+    let w2 = sym_table.get(poe.1).unwrap();
+    format!("MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
+MERGE (word1)-[:ASSOCIATED_WITH]->(word2)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_anon_words(w: &Word) -> String{
+    format!("MERGE (word:Word{{name:'{}',pos:'{}'}})
+MERGE (lang:{})
+MERGE (word)-[:LANG]->(lang)",w.name,w.pos,w.lang)
+}
+
+fn qgen_anon_eq_table(wp: &(Word,Word)) -> String {
+
+    let (w1,w2) = wp;
+
+    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
+MERGE (langa:{})
+MERGE (worda)-[:LANG]->(langa)
+MERGE (wordb:Word{{name:'{}',pos:'{}'}})
+MERGE (langb:{})
+MERGE (wordb)-[:LANG]->(langb)
+MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
+MERGE (word1)-[:EQ]->(word2)
+MERGE (word1)<-[:EQ]-(word2)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_anon_is_a_table(wp: &(Word,Word)) -> String {
+
+    let (w1,w2) = wp;
+
+    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
+MERGE (langa:{})
+MERGE (worda)-[:LANG]->(langa)
+MERGE (wordb:Word{{name:'{}',pos:'{}'}})
+MERGE (langb:{})
+MERGE (wordb)-[:LANG]->(langb)
+MERGE (:{})<-[:LANG]-(sub:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(super:Word{{name:'{}',pos:'{}'}})
+MERGE (sub)-[:IS_A]->(super)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_anon_part_of_table(wp: &(Word,Word)) -> String {
+
+    let (w1,w2) = wp;
+
+    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
+MERGE (langa:{})
+MERGE (worda)-[:LANG]->(langa)
+MERGE (wordb:Word{{name:'{}',pos:'{}'}})
+MERGE (langb:{})
+MERGE (wordb)-[:LANG]->(langb)
+MERGE (:{})<-[:LANG]-(part:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(whole:Word{{name:'{}',pos:'{}'}})
+MERGE (part)-[:PART_OF]->(whole)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn qgen_anon_associated_with_table(wp: &(Word,Word)) -> String {
+
+    let (w1,w2) = wp;
+
+    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
+MERGE (langa:{})
+MERGE (worda)-[:LANG]->(langa)
+MERGE (wordb:Word{{name:'{}',pos:'{}'}})
+MERGE (langb:{})
+MERGE (wordb)-[:LANG]->(langb)
+MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
+MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
+MERGE (word1)-[:ASSOCIATED_WITH]->(word2)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
+}
+
+fn query_executor(path:&str,queries:&Vec<String>,setup_config: SetupConfig){
+    // Connecting to neo4j
+    let database = Arc::new(String::from(setup_config.database));
+    let address = Address::from((setup_config.host, setup_config.port));
+    let auth_token = AuthToken::new_basic_auth(setup_config.user, setup_config.password);
+    let driver = Driver::new(
+        ConnectionConfig::new(address),
+        DriverConfig::new().with_auth(Arc::new(auth_token)),
+    );
+
+    // Executing queries against the database
+    let lenq = queries.len();
+    let mut cur = 0;
+    for q in queries{
+        let result = driver
+            .execute_query(q.clone())
+            .with_database(database.clone())
+            .with_routing_control(RoutingControl::Write)
+            .run_with_retry(ExponentialBackoff::default());
+
+        result.expect(&format!("Failed executing query:\n {}",q));
+        cur += 1;
+        print!("\rExecuted query: ({}/{})",cur,lenq);
+    }
+
+    println!("\nCompleted! File {} executed successfully against database {}",path, *database);
+}
+
+fn parse_ame_file(path: &str, langfile:&str){
     // AST abstractions
     let mut setup_config = SetupConfig::new();
     let mut lang_context:Vec<String> = vec![];
@@ -45,9 +233,6 @@ fn main() {
     let mut anon_associated_with_table:Vec<(Word,Word)> = Vec::new();
 
     let mut queries:Vec<String> = Vec::new();
-
-    let path = args[1].clone();
-    let langfile = fs::read_to_string(path.clone()).expect("Cannot read file");
 
     let pry = AmeParser::parse(Rule::file,&langfile).expect("Failed parsing").next().unwrap();
 
@@ -321,184 +506,4 @@ fn main() {
 
 
     query_executor(&path,&queries,setup_config);
-}
-
-#[derive(Debug)]
-struct SetupConfig<'i> {
-    host:&'i str,
-    port:u16,
-    user:&'i str,
-    password:&'i str,
-    database:&'i str,
-}
-
-impl <'i> SetupConfig <'i>{
-    fn new() -> SetupConfig<'i>{
-        SetupConfig{
-            host : "localhost",
-            port : 7687,
-            user : "neo4j",
-            password : "password",
-            database : "neo4j"
-        }
-    }
-}
-
-#[derive(Debug)]
-#[derive(Clone)]
-struct Word {
-    lang : String,
-    name : String,
-    pos : String
-}
-
-impl Word{
-    fn new() -> Word{
-        Word{
-            lang: String::new(),
-            name: String::new(),
-            pos : String::new()
-        }
-    }
-}
-
-// Cypher query generators
-fn qgen_lang_context(lc : &str) -> String {
-    format!("MERGE (root:ROOT)
-MERGE (lang:{})
-MERGE (lang)-[:ANCHOR]->(root)",lc)
-}
-
-fn qgen_symbol_table(ste: (&String,&Word)) -> String{
-    format!("MERGE (word:Word{{name:'{}',pos:'{}'}})
-MERGE (lang:{})
-MERGE (word)-[:LANG]->(lang)",ste.1.name,ste.1.pos,ste.1.lang)
-}
-
-fn qgen_eq_table(eqe: &(&str,&str), sym_table:&HashMap<String,Word>) -> String{
-    let w1 = sym_table.get(eqe.0).unwrap();
-    let w2 = sym_table.get(eqe.1).unwrap();
-    format!("MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
-MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
-MERGE (word1)-[:EQ]->(word2)
-MERGE (word1)<-[:EQ]-(word2)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
-}
-
-fn qgen_is_a_table(isae: &(&str,&str), sym_table:&HashMap<String,Word>) -> String{
-    let w1 = sym_table.get(isae.0).unwrap();
-    let w2 = sym_table.get(isae.1).unwrap();
-    format!("MERGE (:{})<-[:LANG]-(sub:Word{{name:'{}',pos:'{}'}})
-MERGE (:{})<-[:LANG]-(super:Word{{name:'{}',pos:'{}'}})
-MERGE (sub)-[:IS_A]->(super)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
-}
-
-fn qgen_part_of_table(poe: &(&str,&str), sym_table:&HashMap<String,Word>) -> String{
-    let w1 = sym_table.get(poe.0).unwrap();
-    let w2 = sym_table.get(poe.1).unwrap();
-    format!("MERGE (:{})<-[:LANG]-(part:Word{{name:'{}',pos:'{}'}})
-MERGE (:{})<-[:LANG]-(whole:Word{{name:'{}',pos:'{}'}})
-MERGE (part)-[:PART_OF]->(whole)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
-}
-
-fn qgen_associated_with_table(poe: &(&str,&str), sym_table:&HashMap<String,Word>) -> String{
-    let w1 = sym_table.get(poe.0).unwrap();
-    let w2 = sym_table.get(poe.1).unwrap();
-    format!("MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
-MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
-MERGE (word1)-[:ASSOCIATED_WITH]->(word2)",w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
-}
-
-fn qgen_anon_words(w: &Word) -> String{
-    format!("MERGE (word:Word{{name:'{}',pos:'{}'}})
-MERGE (lang:{})
-MERGE (word)-[:LANG]->(lang)",w.name,w.pos,w.lang)
-}
-
-fn qgen_anon_eq_table(wp: &(Word,Word)) -> String {
-
-    let (w1,w2) = wp;
-
-    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
-MERGE (langa:{})
-MERGE (worda)-[:LANG]->(langa)
-MERGE (wordb:Word{{name:'{}',pos:'{}'}})
-MERGE (langb:{})
-MERGE (wordb)-[:LANG]->(langb)
-MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
-MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
-MERGE (word1)-[:EQ]->(word2)
-MERGE (word1)<-[:EQ]-(word2)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
-}
-
-fn qgen_anon_is_a_table(wp: &(Word,Word)) -> String {
-
-    let (w1,w2) = wp;
-
-    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
-MERGE (langa:{})
-MERGE (worda)-[:LANG]->(langa)
-MERGE (wordb:Word{{name:'{}',pos:'{}'}})
-MERGE (langb:{})
-MERGE (wordb)-[:LANG]->(langb)
-MERGE (:{})<-[:LANG]-(sub:Word{{name:'{}',pos:'{}'}})
-MERGE (:{})<-[:LANG]-(super:Word{{name:'{}',pos:'{}'}})
-MERGE (sub)-[:IS_A]->(super)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
-}
-
-fn qgen_anon_part_of_table(wp: &(Word,Word)) -> String {
-
-    let (w1,w2) = wp;
-
-    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
-MERGE (langa:{})
-MERGE (worda)-[:LANG]->(langa)
-MERGE (wordb:Word{{name:'{}',pos:'{}'}})
-MERGE (langb:{})
-MERGE (wordb)-[:LANG]->(langb)
-MERGE (:{})<-[:LANG]-(part:Word{{name:'{}',pos:'{}'}})
-MERGE (:{})<-[:LANG]-(whole:Word{{name:'{}',pos:'{}'}})
-MERGE (part)-[:PART_OF]->(whole)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
-}
-
-fn qgen_anon_associated_with_table(wp: &(Word,Word)) -> String {
-
-    let (w1,w2) = wp;
-
-    format!("MERGE (worda:Word{{name:'{}',pos:'{}'}})
-MERGE (langa:{})
-MERGE (worda)-[:LANG]->(langa)
-MERGE (wordb:Word{{name:'{}',pos:'{}'}})
-MERGE (langb:{})
-MERGE (wordb)-[:LANG]->(langb)
-MERGE (:{})<-[:LANG]-(word1:Word{{name:'{}',pos:'{}'}})
-MERGE (:{})<-[:LANG]-(word2:Word{{name:'{}',pos:'{}'}})
-MERGE (word1)-[:ASSOCIATED_WITH]->(word2)",w1.name,w1.pos,w1.lang,w2.name,w2.pos,w2.lang,w1.lang,w1.name,w1.pos,w2.lang,w2.name,w2.pos)
-}
-
-fn query_executor(path:&str,queries:&Vec<String>,setup_config: SetupConfig){
-    // Connecting to neo4j
-    let database = Arc::new(String::from(setup_config.database));
-    let address = Address::from((setup_config.host, setup_config.port));
-    let auth_token = AuthToken::new_basic_auth(setup_config.user, setup_config.password);
-    let driver = Driver::new(
-        ConnectionConfig::new(address),
-        DriverConfig::new().with_auth(Arc::new(auth_token)),
-    );
-
-    // Executing queries against the database
-    let lenq = queries.len();
-    let mut cur = 0;
-    for q in queries{
-        let result = driver
-            .execute_query(q.clone())
-            .with_database(database.clone())
-            .with_routing_control(RoutingControl::Write)
-            .run_with_retry(ExponentialBackoff::default());
-
-        result.expect(&format!("Failed executing query:\n {}",q));
-        cur += 1;
-        print!("\rExecuted query: ({}/{})",cur,lenq);
-    }
-
-    println!("\nCompleted! File {} executed successfully against database {}",path, *database);
 }
